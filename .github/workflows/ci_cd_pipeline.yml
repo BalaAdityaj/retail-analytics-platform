@@ -52,7 +52,7 @@ jobs:
       - name: Check Python syntax
         run: |
           echo "Checking DAG syntax..."
-          python -m py_compile dags/retail_pipeline_dag.py
+          python -m py_compile dags/retail_pipeline.py
           echo "✅ DAG syntax OK"
 
       # Step 5: Validate SQL file
