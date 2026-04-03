@@ -1,0 +1,11 @@
+.env 
+logs/ 
+__pycache__/ 
+*.pyc 
+config/ 
+uv.lock 
+docker-compose.yaml 
+data/ 
+main.py 
+pyproject.toml 
+.python-version 
