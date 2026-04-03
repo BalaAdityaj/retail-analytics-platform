@@ -75,11 +75,11 @@ jobs:
           python -c "
           import sys
           sys.path.insert(0, '.')
-          import retail_pipeline_dag
+          import retail_pipeline
           print('✅ DAG imported successfully')
-          print(f'DAG ID: {retail_pipeline_dag.dag.dag_id}')
-          print(f'Schedule: {retail_pipeline_dag.dag.schedule_interval}')
-          tasks = list(retail_pipeline_dag.dag.task_ids)
+          print(f'DAG ID: {retail_pipeline.dag.dag_id}')
+          print(f'Schedule: {retail_pipeline.dag.schedule_interval}')
+          tasks = list(retail_pipeline.dag.task_ids)
           print(f'Tasks: {tasks}')
           "
 
@@ -91,9 +91,9 @@ jobs:
           python -c "
           import sys
           sys.path.insert(0, '.')
-          import retail_pipeline_dag
+          import retail_pipeline
 
-          dag = retail_pipeline_dag.dag
+          dag = retail_pipeline.dag
 
           # Test 1: DAG ID
           assert dag.dag_id == 'retail_medallion_pipeline', 'Wrong DAG ID'
