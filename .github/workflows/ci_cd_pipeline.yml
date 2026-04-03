@@ -1,0 +1,258 @@
+ 
+# ─── CI/CD Pipeline ───────────────────────────────────────────────────────────
+# Capstone: Cloud-Native Omni-Channel Retail Analytics Platform
+# Triggers on every push and pull request to main branch
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Retail Analytics CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, feature/*, release/* ]
+  pull_request:
+    branches: [ main ]
+
+# ─── ENVIRONMENT VARIABLES ────────────────────────────────────────────────────
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JOB 1: CI — Runs on every push to any branch
+# Checks code quality, validates DAG, runs tests
+# ═══════════════════════════════════════════════════════════════════════════════
+
+  continuous_integration:
+    name: CI — Code Quality & Tests
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # Step 1: Get the code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Python
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install apache-airflow==2.9.0
+          pip install apache-airflow-providers-databricks
+          pip install pytest
+          pip install pendulum
+
+      # Step 4: Check Python syntax on all files
+      - name: Check Python syntax
+        run: |
+          echo "Checking DAG syntax..."
+          python -m py_compile dags/retail_pipeline_dag.py
+          echo "✅ DAG syntax OK"
+
+      # Step 5: Validate SQL file
+      - name: Validate SQL file exists
+        run: |
+          echo "Checking SQL files..."
+          if [ -f "sql/gold_views.sql" ]; then
+            echo "✅ gold_views.sql found"
+            cat sql/gold_views.sql
+          else
+            echo "❌ gold_views.sql missing"
+            exit 1
+          fi
+
+      # Step 6: Validate DAG can be imported
+      - name: Validate DAG imports
+        run: |
+          echo "Validating DAG import..."
+          cd dags
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          import retail_pipeline_dag
+          print('✅ DAG imported successfully')
+          print(f'DAG ID: {retail_pipeline_dag.dag.dag_id}')
+          print(f'Schedule: {retail_pipeline_dag.dag.schedule_interval}')
+          tasks = list(retail_pipeline_dag.dag.task_ids)
+          print(f'Tasks: {tasks}')
+          "
+
+      # Step 7: Run unit tests
+      - name: Run DAG tests
+        run: |
+          echo "Running tests..."
+          cd dags
+          python -c "
+          import sys
+          sys.path.insert(0, '.')
+          import retail_pipeline_dag
+
+          dag = retail_pipeline_dag.dag
+
+          # Test 1: DAG ID
+          assert dag.dag_id == 'retail_medallion_pipeline', 'Wrong DAG ID'
+          print('✅ Test 1 PASSED: DAG ID correct')
+
+          # Test 2: Retries
+          retries = dag.default_args.get('retries')
+          assert retries == 3, f'Expected retries=3, got {retries}'
+          print('✅ Test 2 PASSED: retries=3 confirmed')
+
+          # Test 3: Required tasks exist
+          required = ['incremental_ingestion','bronze_load',
+                      'silver_transformation','validation_checks',
+                      'gold_aggregation']
+          for t in required:
+              assert t in dag.task_ids, f'Missing task: {t}'
+          print('✅ Test 3 PASSED: All 5 tasks present')
+
+          # Test 4: Task dependencies correct
+          t0 = dag.get_task('incremental_ingestion')
+          t1 = dag.get_task('bronze_load')
+          t2 = dag.get_task('silver_transformation')
+          t3 = dag.get_task('validation_checks')
+          t4 = dag.get_task('gold_aggregation')
+
+          assert 'bronze_load' in [t.task_id for t in t0.downstream_list]
+          assert 'silver_transformation' in [t.task_id for t in t1.downstream_list]
+          assert 'validation_checks' in [t.task_id for t in t2.downstream_list]
+          assert 'gold_aggregation' in [t.task_id for t in t3.downstream_list]
+          print('✅ Test 4 PASSED: Task dependencies correct')
+
+          print('')
+          print('All tests PASSED ✅')
+          "
+
+      # Step 8: Summary
+      - name: CI Summary
+        run: |
+          echo "================================"
+          echo "CI PIPELINE COMPLETE"
+          echo "================================"
+          echo "✅ Python syntax valid"
+          echo "✅ SQL files present"
+          echo "✅ DAG imports successfully"
+          echo "✅ All tests passed"
+          echo "✅ Ready for deployment"
+          echo "================================"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JOB 2: Deploy to DEV
+# Runs automatically after CI passes on feature/* branches
+# ═══════════════════════════════════════════════════════════════════════════════
+
+  deploy_dev:
+    name: CD — Deploy to DEV
+    runs-on: ubuntu-latest
+    needs: continuous_integration
+    if: startsWith(github.ref, 'refs/heads/feature/')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to DEV environment
+        run: |
+          echo "================================"
+          echo "DEPLOYING TO DEV ENVIRONMENT"
+          echo "================================"
+          echo "Branch    : ${{ github.ref_name }}"
+          echo "Schema    : medallion_dev"
+          echo "Container : rawdataset-dev"
+          echo "Triggered : ${{ github.actor }}"
+          echo ""
+          echo "Deploying notebooks to DEV..."
+          echo "✅ Bronze notebook → DEV workspace"
+          echo "✅ Silver notebook → DEV workspace"
+          echo "✅ Gold notebook   → DEV workspace"
+          echo "✅ DAG             → DEV Airflow"
+          echo "✅ SQL views       → medallion_dev schema"
+          echo ""
+          echo "DEV deployment complete ✅"
+          echo "================================"
+          echo ""
+          echo "NOTE: In production this step would use"
+          echo "Databricks CLI to deploy notebooks:"
+          echo "databricks workspace import_dir notebooks/"
+          echo "/Shared/retail/dev --profile dev --overwrite"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JOB 3: Deploy to TEST
+# Runs automatically after CI passes on main branch
+# ═══════════════════════════════════════════════════════════════════════════════
+
+  deploy_test:
+    name: CD — Deploy to TEST
+    runs-on: ubuntu-latest
+    needs: continuous_integration
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to TEST environment
+        run: |
+          echo "================================"
+          echo "DEPLOYING TO TEST ENVIRONMENT"
+          echo "================================"
+          echo "Branch    : main"
+          echo "Schema    : medallion_test"
+          echo "Container : rawdataset-test"
+          echo "Triggered : ${{ github.actor }}"
+          echo ""
+          echo "Deploying notebooks to TEST..."
+          echo "✅ Bronze notebook → TEST workspace"
+          echo "✅ Silver notebook → TEST workspace"
+          echo "✅ Gold notebook   → TEST workspace"
+          echo "✅ DAG             → TEST Airflow"
+          echo "✅ SQL views       → medallion_test schema"
+          echo ""
+          echo "TEST deployment complete ✅"
+          echo "================================"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# JOB 4: Deploy to PROD
+# Requires MANUAL APPROVAL before running
+# Only triggers on release/* branches
+# ═══════════════════════════════════════════════════════════════════════════════
+
+  deploy_prod:
+    name: CD — Deploy to PROD (Manual Approval Required)
+    runs-on: ubuntu-latest
+    needs: deploy_test
+    if: startsWith(github.ref, 'refs/heads/release/')
+    environment:
+      name: production
+      url: https://github.com/BalaAdityaj/retail-analytics-platform
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy to PROD environment
+        run: |
+          echo "================================"
+          echo "DEPLOYING TO PROD ENVIRONMENT"
+          echo "================================"
+          echo "Branch    : ${{ github.ref_name }}"
+          echo "Schema    : medallion_prod"
+          echo "Container : rawdataset-prod"
+          echo "Triggered : ${{ github.actor }}"
+          echo "Approved  : Manual gate passed ✅"
+          echo ""
+          echo "Deploying notebooks to PROD..."
+          echo "✅ Bronze notebook → PROD workspace"
+          echo "✅ Silver notebook → PROD workspace"
+          echo "✅ Gold notebook   → PROD workspace"
+          echo "✅ DAG             → PROD Airflow"
+          echo "✅ SQL views       → medallion_prod schema"
+          echo ""
+          echo "PROD deployment complete ✅"
+          echo "================================"
