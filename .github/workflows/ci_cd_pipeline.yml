@@ -1,194 +1,143 @@
 name: Retail Analytics CI/CD
 
 on:
-push:
-branches:
-- main
-- "feature/**"
-- "release/**"
-pull_request:
-branches:
-- main
-workflow_dispatch:
+  push:
+    branches:
+      - main
+      - 'feature/**'
+      - 'release/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
 
 concurrency:
-group: retail-analytics-${{ github.ref }}
-cancel-in-progress: true
+  group: retail-analytics-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-validate:
-name: Validate Codebase
-runs-on: ubuntu-latest
+  validate:
+    name: Validate Codebase
+    runs-on: ubuntu-latest
 
-```
-steps:
-  # ─────────────────────────────
-  # Checkout
-  # ─────────────────────────────
-  - name: Checkout repository
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  # ─────────────────────────────
-  # Fix BOM (IMPORTANT FIX)
-  # ─────────────────────────────
-  - name: Remove BOM characters
-    run: |
-      sed -i '1s/^\xEF\xBB\xBF//' dags/retail_pipeline.py
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-  # ─────────────────────────────
-  # Python Setup
-  # ─────────────────────────────
-  - name: Set up Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: "3.12"
+      - name: Validate Python syntax
+        run: |
+          python -m py_compile dags/retail_pipeline.py
+          python -m py_compile notebooks/Bronze.py
+          python -m py_compile notebooks/Gold.py
+          python -m py_compile notebooks/Validation.py
+          python -m py_compile notebooks/silver.py
 
-  # ─────────────────────────────
-  # Syntax Validation
-  # ─────────────────────────────
-  - name: Validate Python syntax
-    run: |
-      python -m py_compile dags/retail_pipeline.py
-      python -m py_compile notebooks/Bronze.py
-      python -m py_compile notebooks/Gold.py
-      python -m py_compile notebooks/Validation.py
-      python -m py_compile notebooks/silver.py
+      - name: Validate DAG structure
+        run: |
+          python - <<'PY'
+          import ast
+          import pathlib
+          import sys
 
-  # ─────────────────────────────
-  # DAG Structure Validation
-  # ─────────────────────────────
-  - name: Validate DAG structure
-    run: |
-      python - <<'PY'
-      import ast
-      import pathlib
-      import sys
+          dag_path = pathlib.Path("dags/retail_pipeline.py")
+          source = dag_path.read_text(encoding="utf-8")
+          tree = ast.parse(source, filename=str(dag_path))
 
-      dag_path = pathlib.Path("dags/retail_pipeline.py")
-      source = dag_path.read_text(encoding="utf-8")
-      tree = ast.parse(source, filename=str(dag_path))
+          required_strings = [
+              "retail_adf_pipeline_final",
+              "run_adf_pipeline",
+              "success_email",
+              "failure_email",
+              "@daily",
+          ]
 
-      required_strings = [
-          "retail_adf_pipeline_final",
-          "run_adf_pipeline",
-          "success_email",
-          "failure_email",
-          "@daily",
-      ]
+          missing = [item for item in required_strings if item not in source]
+          if missing:
+              print(f"Missing required DAG markers: {missing}")
+              sys.exit(1)
 
-      missing = [item for item in required_strings if item not in source]
-      if missing:
-          print(f"Missing required DAG markers: {missing}")
-          sys.exit(1)
+          print("DAG structure validation passed")
+          print(f"Parsed AST nodes: {len(list(ast.walk(tree)))}")
+          PY
 
-      print("DAG structure validation passed")
-      print(f"Parsed AST nodes: {len(list(ast.walk(tree)))}")
-      PY
+      - name: Validate SQL asset
+        run: |
+          test -f sql/gold_views.sql
+          grep -q "CREATE OR REPLACE VIEW" sql/gold_views.sql
 
-  # ─────────────────────────────
-  # SQL Validation
-  # ─────────────────────────────
-  - name: Validate SQL asset
-    run: |
-      test -f sql/gold_views.sql
-      grep -q "CREATE OR REPLACE VIEW" sql/gold_views.sql
+      - name: Upload deployment bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: retail-analytics-bundle
+          path: |
+            dags/retail_pipeline.py
+            notebooks/Bronze.py
+            notebooks/Gold.py
+            notebooks/Validation.py
+            notebooks/silver.py
+            sql/gold_views.sql
 
-  # ─────────────────────────────
-  # Upload Artifacts
-  # ─────────────────────────────
-  - name: Upload deployment bundle
-    uses: actions/upload-artifact@v4
-    with:
-      name: retail-analytics-bundle
-      path: |
-        dags/retail_pipeline.py
-        notebooks/Bronze.py
-        notebooks/Gold.py
-        notebooks/Validation.py
-        notebooks/silver.py
-        sql/gold_views.sql
-```
+  deploy_dev:
+    name: Deploy To DEV
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')
+    environment: dev
 
-# ─────────────────────────────
+    steps:
+      - name: Download deployment bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: retail-analytics-bundle
+          path: deploy_bundle
 
-# DEV DEPLOY
+      - name: Simulate DEV deployment
+        run: |
+          echo "Deploying to DEV"
+          echo "Branch: ${{ github.ref_name }}"
+          find deploy_bundle -maxdepth 2 -type f | sort
 
-# ─────────────────────────────
+  deploy_test:
+    name: Deploy To TEST
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: test
 
-deploy_dev:
-name: Deploy To DEV
-runs-on: ubuntu-latest
-needs: validate
-if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/feature/')
-environment: dev
+    steps:
+      - name: Download deployment bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: retail-analytics-bundle
+          path: deploy_bundle
 
-```
-steps:
-  - name: Download deployment bundle
-    uses: actions/download-artifact@v4
-    with:
-      name: retail-analytics-bundle
-      path: deploy_bundle
+      - name: Simulate TEST deployment
+        run: |
+          echo "Deploying to TEST"
+          echo "Branch: ${{ github.ref_name }}"
+          find deploy_bundle -maxdepth 2 -type f | sort
 
-  - name: Simulate DEV deployment
-    run: |
-      echo "Deploying to DEV"
-      echo "Branch: ${{ github.ref_name }}"
-      find deploy_bundle -maxdepth 2 -type f | sort
-```
+  deploy_prod:
+    name: Deploy To PROD
+    runs-on: ubuntu-latest
+    needs: validate
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+    environment: prod
 
-# ─────────────────────────────
+    steps:
+      - name: Download deployment bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: retail-analytics-bundle
+          path: deploy_bundle
 
-# TEST DEPLOY
-
-# ─────────────────────────────
-
-deploy_test:
-name: Deploy To TEST
-runs-on: ubuntu-latest
-needs: validate
-if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-environment: test
-
-```
-steps:
-  - name: Download deployment bundle
-    uses: actions/download-artifact@v4
-    with:
-      name: retail-analytics-bundle
-      path: deploy_bundle
-
-  - name: Simulate TEST deployment
-    run: |
-      echo "Deploying to TEST"
-      echo "Branch: ${{ github.ref_name }}"
-      find deploy_bundle -maxdepth 2 -type f | sort
-```
-
-# ─────────────────────────────
-
-# PROD DEPLOY
-
-# ─────────────────────────────
-
-deploy_prod:
-name: Deploy To PROD
-runs-on: ubuntu-latest
-needs: validate
-if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
-environment: prod
-
-```
-steps:
-  - name: Download deployment bundle
-    uses: actions/download-artifact@v4
-    with:
-      name: retail-analytics-bundle
-      path: deploy_bundle
-
-  - name: Simulate PROD deployment
-    run: |
-      echo "Deploying to PROD"
-      echo "Branch: ${{ github.ref_name }}"
-      find deploy_bundle -maxdepth 2 -type f | sort
-```
+      - name: Simulate PROD deployment
+        run: |
+          echo "Deploying to PROD"
+          echo "Branch: ${{ github.ref_name }}"
+          find deploy_bundle -maxdepth 2 -type f | sort
