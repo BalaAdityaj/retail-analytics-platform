@@ -45,7 +45,7 @@ jobs:
           import sys
 
           dag_path = pathlib.Path("dags/retail_pipeline.py")
-          source = dag_path.read_text(encoding="utf-8")
+          source = dag_path.read_text(encoding="utf-8-sig")
           tree = ast.parse(source, filename=str(dag_path))
 
           required_strings = [
