@@ -204,39 +204,30 @@ jobs:
           echo "TEST deployment complete ✅"
           echo "================================"
 
-# ═══════════════════════════════════════════════════════
-# JOB 4: Deploy to PROD
-# Requires manual approval — only on release/* branches
-# ═══════════════════════════════════════════════════════
+deploy_prod:
+  name: CD — Deploy to PROD
+  runs-on: ubuntu-latest
+  needs: deploy_test
+  if: startsWith(github.ref, 'refs/heads/release/')
 
-  deploy_prod:
-    name: CD — Deploy to PROD (Manual Approval Required)
-    runs-on: ubuntu-latest
-    needs: deploy_test
-    if: startsWith(github.ref, 'refs/heads/release/')
-    environment:
-      name: production
-      url: https://github.com/BalaAdityaj/retail-analytics-platform
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Deploy to PROD
-        run: |
-          echo "================================"
-          echo "DEPLOYING TO PROD ENVIRONMENT"
-          echo "================================"
-          echo "Branch    : ${{ github.ref_name }}"
-          echo "Schema    : medallion_prod"
-          echo "Triggered : ${{ github.actor }}"
-          echo "Approved  : Manual gate passed ✅"
-          echo ""
-          echo "✅ Bronze notebook → PROD"
-          echo "✅ Silver notebook → PROD"
-          echo "✅ Gold notebook   → PROD"
-          echo "✅ DAG             → PROD Airflow"
-          echo "✅ SQL views       → medallion_prod"
-          echo ""
-          echo "PROD deployment complete ✅"
-          echo "================================"
+    - name: Deploy to PROD
+      run: |
+        echo "================================"
+        echo "DEPLOYING TO PROD ENVIRONMENT"
+        echo "================================"
+        echo "Branch    : ${{ github.ref_name }}"
+        echo "Schema    : medallion_prod"
+        echo "Triggered : ${{ github.actor }}"
+        echo ""
+        echo "✅ Bronze notebook → PROD"
+        echo "✅ Silver notebook → PROD"
+        echo "✅ Gold notebook   → PROD"
+        echo "✅ DAG             → PROD Airflow"
+        echo "✅ SQL views       → medallion_prod"
+        echo ""
+        echo "PROD deployment complete ✅"
+        echo "================================"
