@@ -9,3 +9,7 @@ data/
 main.py 
 pyproject.toml 
 .python-version 
+
+# Ignore all DAG experiments except the retail pipeline DAG.
+dags/*
+!dags/retail_pipeline.py
