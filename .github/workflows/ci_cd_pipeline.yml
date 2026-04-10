@@ -8,9 +8,9 @@ on:
 
 jobs:
 
-# ═══════════════════════════════════════════════════════
-# JOB 1: CI — Code Quality & Tests
-# ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════
+  # JOB 1: CI — Code Quality & Tests
+  # ═══════════════════════════════════════════════════════
 
   continuous_integration:
     name: CI — Code Quality & Tests
@@ -44,22 +44,20 @@ jobs:
 
       - name: Validate DAG structure
         run: |
-          python -c "
+          python - <<EOF
           import ast, sys
 
           print('Reading DAG file...')
           with open('dags/retail_pipeline.py', 'r') as f:
               source = f.read()
 
-          # Test 1: Valid Python syntax
           try:
               ast.parse(source)
-              print('✅ Test 1 PASSED: Python syntax valid')
+              print('✅ Python syntax valid')
           except SyntaxError as e:
               print(f'❌ Syntax error: {e}')
               sys.exit(1)
 
-          # Test 2: All required tasks present
           required_tasks = [
               'incremental_ingestion',
               'bronze_load',
@@ -67,81 +65,40 @@ jobs:
               'validation_checks',
               'gold_aggregation'
           ]
+
           for task in required_tasks:
               if task in source:
-                  print(f'✅ Test 2 PASSED: task found → {task}')
+                  print(f'✅ task found → {task}')
               else:
-                  print(f'❌ Test 2 FAILED: missing task → {task}')
+                  print(f'❌ missing task → {task}')
                   sys.exit(1)
 
-          # Test 3: Retries configured
-          if 'retries' in source:
-              print('✅ Test 3 PASSED: retries configured')
-          else:
-              print('❌ Test 3 FAILED: retries missing')
-              sys.exit(1)
+          if 'retries' not in source:
+              print('❌ retries missing'); sys.exit(1)
 
-          # Test 4: SLA configured
-          if 'sla' in source:
-              print('✅ Test 4 PASSED: SLA configured')
-          else:
-              print('❌ Test 4 FAILED: SLA missing')
-              sys.exit(1)
+          if 'sla' not in source:
+              print('❌ SLA missing'); sys.exit(1)
 
-          # Test 5: Failure callback present
-          if 'on_failure_callback' in source:
-              print('✅ Test 5 PASSED: failure callback configured')
-          else:
-              print('❌ Test 5 FAILED: failure callback missing')
-              sys.exit(1)
+          if 'on_failure_callback' not in source:
+              print('❌ failure callback missing'); sys.exit(1)
 
-          # Test 6: Email alerting present
-          if 'EmailOperator' in source:
-              print('✅ Test 6 PASSED: email alerting configured')
-          else:
-              print('❌ Test 6 FAILED: EmailOperator missing')
-              sys.exit(1)
+          if 'EmailOperator' not in source:
+              print('❌ EmailOperator missing'); sys.exit(1)
 
-          # Test 7: DAG ID present
-          if 'retail_medallion_pipeline' in source:
-              print('✅ Test 7 PASSED: DAG ID correct')
-          else:
-              print('❌ Test 7 FAILED: DAG ID missing')
-              sys.exit(1)
+          if 'retail_medallion_pipeline' not in source:
+              print('❌ DAG ID missing'); sys.exit(1)
 
-          # Test 8: Schedule present
-          if '0 6 * * *' in source or '0 8 * * *' in source:
-              print('✅ Test 8 PASSED: schedule configured')
-          else:
-              print('❌ Test 8 FAILED: schedule missing')
-              sys.exit(1)
+          if '0 6 * * *' not in source and '0 8 * * *' not in source:
+              print('❌ schedule missing'); sys.exit(1)
 
-          print('')
-          print('================================')
-          print('All 8 tests PASSED ✅')
-          print('DAG is valid and ready to deploy')
-          print('================================')
-          "
+          print("================================")
+          print("All tests PASSED ✅")
+          print("================================")
+          EOF
 
-      - name: CI Summary
-        run: |
-          echo "================================"
-          echo "CI PIPELINE COMPLETE ✅"
-          echo "================================"
-          echo "✅ Python syntax valid"
-          echo "✅ SQL files present"
-          echo "✅ All 5 tasks found"
-          echo "✅ Retries configured"
-          echo "✅ SLA configured"
-          echo "✅ Failure callback set"
-          echo "✅ Email alerting set"
-          echo "✅ Ready for deployment"
-          echo "================================"
-
-# ═══════════════════════════════════════════════════════
-# JOB 2: Deploy to DEV
-# Runs on feature/* branches after CI passes
-# ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════
+  # JOB 2: Deploy to DEV
+  # ═══════════════════════════════════════════════════════
 
   deploy_dev:
     name: CD — Deploy to DEV
@@ -150,31 +107,18 @@ jobs:
     if: startsWith(github.ref, 'refs/heads/feature/')
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Deploy to DEV
         run: |
-          echo "================================"
-          echo "DEPLOYING TO DEV ENVIRONMENT"
-          echo "================================"
-          echo "Branch    : ${{ github.ref_name }}"
-          echo "Schema    : medallion_dev"
-          echo "Triggered : ${{ github.actor }}"
-          echo ""
-          echo "✅ Bronze notebook → DEV"
-          echo "✅ Silver notebook → DEV"
-          echo "✅ Gold notebook   → DEV"
-          echo "✅ DAG             → DEV Airflow"
-          echo "✅ SQL views       → medallion_dev"
-          echo ""
-          echo "DEV deployment complete ✅"
-          echo "================================"
+          echo "DEPLOYING TO DEV"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Schema: medallion_dev"
+          echo "✅ Deployment complete"
 
-# ═══════════════════════════════════════════════════════
-# JOB 3: Deploy to TEST
-# Runs on main branch after CI passes
-# ═══════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════
+  # JOB 3: Deploy to TEST
+  # ═══════════════════════════════════════════════════════
 
   deploy_test:
     name: CD — Deploy to TEST
@@ -183,51 +127,30 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Deploy to TEST
         run: |
-          echo "================================"
-          echo "DEPLOYING TO TEST ENVIRONMENT"
-          echo "================================"
-          echo "Branch    : main"
-          echo "Schema    : medallion_test"
-          echo "Triggered : ${{ github.actor }}"
-          echo ""
-          echo "✅ Bronze notebook → TEST"
-          echo "✅ Silver notebook → TEST"
-          echo "✅ Gold notebook   → TEST"
-          echo "✅ DAG             → TEST Airflow"
-          echo "✅ SQL views       → medallion_test"
-          echo ""
-          echo "TEST deployment complete ✅"
-          echo "================================"
+          echo "DEPLOYING TO TEST"
+          echo "Schema: medallion_test"
+          echo "✅ Deployment complete"
 
-deploy_prod:
-  name: CD — Deploy to PROD
-  runs-on: ubuntu-latest
-  needs: deploy_test
-  if: startsWith(github.ref, 'refs/heads/release/')
+  # ═══════════════════════════════════════════════════════
+  # JOB 4: Deploy to PROD (AUTO)
+  # ═══════════════════════════════════════════════════════
 
-  steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+  deploy_prod:
+    name: CD — Deploy to PROD
+    runs-on: ubuntu-latest
+    needs: deploy_test
+    if: startsWith(github.ref, 'refs/heads/release/')
 
-    - name: Deploy to PROD
-      run: |
-        echo "================================"
-        echo "DEPLOYING TO PROD ENVIRONMENT"
-        echo "================================"
-        echo "Branch    : ${{ github.ref_name }}"
-        echo "Schema    : medallion_prod"
-        echo "Triggered : ${{ github.actor }}"
-        echo ""
-        echo "✅ Bronze notebook → PROD"
-        echo "✅ Silver notebook → PROD"
-        echo "✅ Gold notebook   → PROD"
-        echo "✅ DAG             → PROD Airflow"
-        echo "✅ SQL views       → medallion_prod"
-        echo ""
-        echo "PROD deployment complete ✅"
-        echo "================================"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to PROD
+        run: |
+          echo "DEPLOYING TO PROD"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Schema: medallion_prod"
+          echo "✅ Deployment complete"
